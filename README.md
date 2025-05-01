@@ -26,6 +26,7 @@ The software runs on the Raspberry Pi and provides:
 - LIDAR mapping and navigation
 - High-level control of the robot
 - Communication with the microcontroller
+- Event-driven sensor data processing
 
 ## Communication Protocol
 
@@ -36,11 +37,11 @@ M1,M2,S1,P1,S2,P2,...
 ```
 Where:
 - `M1`, `M2`: Motor speeds (-255 to 255)
-- `S1,P1`, `S2,P2`: Servo pin and position pairs (pin: 0-13, position: 0-255)
+- `S1,P1`, `S2,P2`: Servo pin and position pairs (pin: 0-13, position: 0-180)
 
 Example commands:
 - `100,-100` - Set motor 1 to 100, motor 2 to -100
-- `0,0,8,128,9,64` - Stop motors, set servo on pin 8 to position 128, servo on pin 9 to position 64
+- `0,0,8,90,9,45` - Stop motors, set servo on pin 8 to position 90, servo on pin 9 to position 45
 
 ### Sensor Data Format (Arduino → Raspberry Pi)
 Sensor data is sent in the format:
@@ -85,9 +86,35 @@ The sensor data is sent:
 5. Upload firmware
 
 ### Software Development
-1. Install .NET Core on Raspberry Pi
+1. Install .NET 9.0 or later
 2. Navigate to `Software` directory
-3. Build and run the project
+3. Build and run the project:
+   ```bash
+   dotnet build
+   dotnet run
+   ```
+
+## Software API Documentation
+
+The software provides a C# API for controlling the Nyandroid Mite robot. Key components include:
+
+### FirmwareManager
+The main class for communicating with the microcontroller:
+- Auto-detection of the microcontroller port
+- Event-driven sensor data handling
+- Motor and servo control methods
+- Automatic connection management
+
+### Event Arguments
+- `ButtonStatesEventArgs`: Contains button state data
+- `AnalogValuesEventArgs`: Contains analog sensor data
+
+### CLI Interface
+The command-line interface provides:
+- Interactive menu for sending commands
+- Real-time display of sensor data
+- Support for motor and servo control
+- Error handling and input validation
 
 ## Dependencies
 
@@ -96,8 +123,11 @@ The sensor data is sent:
 - Servo.h library (included with Arduino IDE)
 
 ### Software
-- .NET Core
-- Additional dependencies listed in `Software/nyandroid-mite.csproj`
+- .NET 9.0 or later
+- System.IO.Ports NuGet package
+
+## License
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Notes
 - The firmware uses internal pull-up resistors for button inputs

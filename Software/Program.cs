@@ -3,8 +3,15 @@ using System.Threading;
 
 namespace NyandroidMite
 {
+    /// <summary>
+    /// Provides a command-line interface for interacting with the Nyandroid Mite microcontroller.
+    /// </summary>
     class Program
     {
+        /// <summary>
+        /// The entry point of the application.
+        /// </summary>
+        /// <param name="args">Command-line arguments passed to the application.</param>
         static void Main(string[] args)
         {
             Console.WriteLine("Nyandroid Mite CLI");
@@ -71,6 +78,10 @@ namespace NyandroidMite
             }
         }
 
+        /// <summary>
+        /// Prompts the user for motor speeds and sends the command to the microcontroller.
+        /// </summary>
+        /// <param name="firmwareManager">The FirmwareManager instance to use for sending commands.</param>
         static void SendMotorCommands(FirmwareManager firmwareManager)
         {
             Console.Write("Enter motor 1 speed (-255 to 255): ");
@@ -91,6 +102,10 @@ namespace NyandroidMite
             Console.WriteLine("Motor commands sent successfully!");
         }
 
+        /// <summary>
+        /// Prompts the user for servo configurations and sends the command to the microcontroller.
+        /// </summary>
+        /// <param name="firmwareManager">The FirmwareManager instance to use for sending commands.</param>
         static void SendServoCommands(FirmwareManager firmwareManager)
         {
             Console.Write("Enter number of servos to control: ");
@@ -124,6 +139,10 @@ namespace NyandroidMite
             Console.WriteLine("Servo commands sent successfully!");
         }
 
+        /// <summary>
+        /// Prompts the user for both motor speeds and servo configurations, then sends a combined command.
+        /// </summary>
+        /// <param name="firmwareManager">The FirmwareManager instance to use for sending commands.</param>
         static void SendCombinedCommands(FirmwareManager firmwareManager)
         {
             Console.Write("Enter motor 1 speed (-255 to 255): ");
