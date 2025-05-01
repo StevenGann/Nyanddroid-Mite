@@ -1,198 +1,174 @@
-﻿using System;
-using System.IO.Ports;
+using System;
 using System.Threading;
-using System.Threading.Tasks;
-using System.Linq;
 
 namespace NyandroidMite
 {
-    public class FirmwareManager : IDisposable
+    class Program
     {
-        private SerialPort? _serialPort;
-        private readonly string _portName;
-        private readonly int _baudRate;
-        private bool _isDisposed;
-        private readonly CancellationTokenSource _cancellationTokenSource;
-        private Task? _readTask;
-
-        public event EventHandler<ButtonStatesEventArgs>? ButtonStatesReceived;
-        public event EventHandler<AnalogValuesEventArgs>? AnalogValuesReceived;
-
-        public FirmwareManager(string? portName = null, int baudRate = 115200)
+        static void Main(string[] args)
         {
-            _portName = portName ?? DetectMicrocontrollerPort() ?? throw new Exception("No microcontroller found");
-            _baudRate = baudRate;
-            _cancellationTokenSource = new CancellationTokenSource();
-        }
-
-        public static string? DetectMicrocontrollerPort()
-        {
-            // Get all available serial ports
-            var ports = SerialPort.GetPortNames();
+            Console.WriteLine("Nyandroid Mite CLI");
+            Console.WriteLine("=================");
             
-            // On Linux, filter to only USB serial devices
-            if (Environment.OSVersion.Platform == PlatformID.Unix)
-            {
-                ports = ports.Where(p => p.StartsWith("/dev/ttyUSB") || p.StartsWith("/dev/ttyACM")).ToArray();
-            }
-
-            foreach (var port in ports)
-            {
-                try
-                {
-                    using var testPort = new SerialPort(port, 115200)
-                    {
-                        ReadTimeout = 500,
-                        WriteTimeout = 500
-                    };
-
-                    testPort.Open();
-                    testPort.WriteLine("HANDSHAKE");
-                    
-                    // Wait for response
-                    var response = testPort.ReadLine().Trim();
-                    if (response == "NYANDROID_MITE")
-                    {
-                        return port;
-                    }
-                }
-                catch
-                {
-                    // Ignore errors and try next port
-                    continue;
-                }
-            }
-
-            return null;
-        }
-
-        public bool IsConnected => _serialPort?.IsOpen ?? false;
-
-        public void Connect()
-        {
-            if (_serialPort != null && _serialPort.IsOpen)
-                return;
-
-            _serialPort = new SerialPort(_portName, _baudRate)
-            {
-                ReadTimeout = 1000,
-                WriteTimeout = 1000
-            };
-
+            using var firmwareManager = new FirmwareManager();
+            
             try
             {
-                _serialPort.Open();
-                StartReading();
+                Console.WriteLine("Connecting to Nyandroid Mite...");
+                firmwareManager.Connect();
+                Console.WriteLine("Connected successfully!");
+
+                // Subscribe to events
+                firmwareManager.ButtonStatesReceived += (sender, e) =>
+                {
+                    Console.WriteLine($"\nButton States: {string.Join(", ", e.ButtonStates)}");
+                };
+
+                firmwareManager.AnalogValuesReceived += (sender, e) =>
+                {
+                    Console.WriteLine($"\nAnalog Values: {string.Join(", ", e.AnalogValues)}");
+                };
+
+                // Main menu loop
+                while (true)
+                {
+                    Console.WriteLine("\nMenu:");
+                    Console.WriteLine("1. Send motor commands");
+                    Console.WriteLine("2. Send servo commands");
+                    Console.WriteLine("3. Send combined motor and servo commands");
+                    Console.WriteLine("4. Exit");
+                    Console.Write("\nSelect an option: ");
+
+                    if (!int.TryParse(Console.ReadLine(), out int choice))
+                    {
+                        Console.WriteLine("Invalid input. Please enter a number.");
+                        continue;
+                    }
+
+                    switch (choice)
+                    {
+                        case 1:
+                            SendMotorCommands(firmwareManager);
+                            break;
+                        case 2:
+                            SendServoCommands(firmwareManager);
+                            break;
+                        case 3:
+                            SendCombinedCommands(firmwareManager);
+                            break;
+                        case 4:
+                            Console.WriteLine("Exiting...");
+                            return;
+                        default:
+                            Console.WriteLine("Invalid option. Please try again.");
+                            break;
+                    }
+                }
             }
             catch (Exception ex)
             {
-                throw new Exception($"Failed to connect to port {_portName}: {ex.Message}", ex);
+                Console.WriteLine($"Error: {ex.Message}");
             }
         }
 
-        public void Disconnect()
+        static void SendMotorCommands(FirmwareManager firmwareManager)
         {
-            _cancellationTokenSource.Cancel();
-            _readTask?.Wait();
-            _serialPort?.Close();
-            _serialPort?.Dispose();
-            _serialPort = null;
-        }
-
-        private void StartReading()
-        {
-            _readTask = Task.Run(async () =>
+            Console.Write("Enter motor 1 speed (-255 to 255): ");
+            if (!int.TryParse(Console.ReadLine(), out int motor1Speed))
             {
-                while (!_cancellationTokenSource.Token.IsCancellationRequested)
-                {
-                    try
-                    {
-                        if (_serialPort?.IsOpen == true)
-                        {
-                            string line = _serialPort.ReadLine();
-                            ProcessSensorData(line);
-                        }
-                    }
-                    catch (TimeoutException)
-                    {
-                        // Ignore timeout exceptions as they're expected when no data is available
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error reading from serial port: {ex.Message}");
-                    }
-
-                    await Task.Delay(10, _cancellationTokenSource.Token);
-                }
-            }, _cancellationTokenSource.Token);
-        }
-
-        private void ProcessSensorData(string data)
-        {
-            // Format: B:0000000 A:123,456,789,...
-            var parts = data.Split(' ');
-            if (parts.Length != 2)
+                Console.WriteLine("Invalid input for motor 1 speed.");
                 return;
-
-            // Process button states
-            if (parts[0].StartsWith("B:"))
-            {
-                var buttonStates = parts[0][2..].Select(c => c == '1').ToArray();
-                ButtonStatesReceived?.Invoke(this, new ButtonStatesEventArgs(buttonStates));
             }
 
-            // Process analog values
-            if (parts[1].StartsWith("A:"))
+            Console.Write("Enter motor 2 speed (-255 to 255): ");
+            if (!int.TryParse(Console.ReadLine(), out int motor2Speed))
             {
-                var analogValues = parts[1][2..].Split(',').Select(int.Parse).ToArray();
-                AnalogValuesReceived?.Invoke(this, new AnalogValuesEventArgs(analogValues));
+                Console.WriteLine("Invalid input for motor 2 speed.");
+                return;
             }
+
+            firmwareManager.SendCommand(motor1Speed, motor2Speed);
+            Console.WriteLine("Motor commands sent successfully!");
         }
 
-        public void SendCommand(int motor1Speed, int motor2Speed, params (int pin, int position)[] servos)
+        static void SendServoCommands(FirmwareManager firmwareManager)
         {
-            if (!IsConnected)
-                throw new InvalidOperationException("Not connected to firmware");
-
-            // Format: M1,M2,S1,P1,S2,P2,...
-            var command = $"{motor1Speed},{motor2Speed}";
-            
-            foreach (var (pin, position) in servos)
+            Console.Write("Enter number of servos to control: ");
+            if (!int.TryParse(Console.ReadLine(), out int servoCount) || servoCount <= 0)
             {
-                command += $",{pin},{position}";
+                Console.WriteLine("Invalid number of servos.");
+                return;
             }
 
-            _serialPort?.WriteLine(command);
+            var servos = new (int pin, int position)[servoCount];
+            for (int i = 0; i < servoCount; i++)
+            {
+                Console.Write($"Enter servo {i + 1} pin number: ");
+                if (!int.TryParse(Console.ReadLine(), out int pin))
+                {
+                    Console.WriteLine("Invalid pin number.");
+                    return;
+                }
+
+                Console.Write($"Enter servo {i + 1} position (0-180): ");
+                if (!int.TryParse(Console.ReadLine(), out int position))
+                {
+                    Console.WriteLine("Invalid position.");
+                    return;
+                }
+
+                servos[i] = (pin, position);
+            }
+
+            firmwareManager.SendCommand(0, 0, servos);
+            Console.WriteLine("Servo commands sent successfully!");
         }
 
-        public void Dispose()
+        static void SendCombinedCommands(FirmwareManager firmwareManager)
         {
-            if (!_isDisposed)
+            Console.Write("Enter motor 1 speed (-255 to 255): ");
+            if (!int.TryParse(Console.ReadLine(), out int motor1Speed))
             {
-                _isDisposed = true;
-                Disconnect();
-                _cancellationTokenSource.Dispose();
+                Console.WriteLine("Invalid input for motor 1 speed.");
+                return;
             }
+
+            Console.Write("Enter motor 2 speed (-255 to 255): ");
+            if (!int.TryParse(Console.ReadLine(), out int motor2Speed))
+            {
+                Console.WriteLine("Invalid input for motor 2 speed.");
+                return;
+            }
+
+            Console.Write("Enter number of servos to control: ");
+            if (!int.TryParse(Console.ReadLine(), out int servoCount) || servoCount <= 0)
+            {
+                Console.WriteLine("Invalid number of servos.");
+                return;
+            }
+
+            var servos = new (int pin, int position)[servoCount];
+            for (int i = 0; i < servoCount; i++)
+            {
+                Console.Write($"Enter servo {i + 1} pin number: ");
+                if (!int.TryParse(Console.ReadLine(), out int pin))
+                {
+                    Console.WriteLine("Invalid pin number.");
+                    return;
+                }
+
+                Console.Write($"Enter servo {i + 1} position (0-180): ");
+                if (!int.TryParse(Console.ReadLine(), out int position))
+                {
+                    Console.WriteLine("Invalid position.");
+                    return;
+                }
+
+                servos[i] = (pin, position);
+            }
+
+            firmwareManager.SendCommand(motor1Speed, motor2Speed, servos);
+            Console.WriteLine("Combined commands sent successfully!");
         }
     }
-
-    public class ButtonStatesEventArgs : EventArgs
-    {
-        public bool[] ButtonStates { get; }
-
-        public ButtonStatesEventArgs(bool[] buttonStates)
-        {
-            ButtonStates = buttonStates;
-        }
-    }
-
-    public class AnalogValuesEventArgs : EventArgs
-    {
-        public int[] AnalogValues { get; }
-
-        public AnalogValuesEventArgs(int[] analogValues)
-        {
-            AnalogValues = analogValues;
-        }
-    }
-}
+} 
