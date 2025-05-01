@@ -167,6 +167,12 @@ void setServo(int pin, int position) {
  * @param command The command string to process
  */
 void processCommand(String command) {
+  // Check for handshake command
+  if (command == "HANDSHAKE") {
+    Serial.println("NYANDROID_MITE");
+    return;
+  }
+
   // Command format: M1,M2,S1,P1,S2,P2,...
   // M1,M2 are motor speeds (-255 to 255)
   // S1,P1 are servo pin and position pairs

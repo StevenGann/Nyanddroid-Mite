@@ -2,6 +2,7 @@
 using System.IO.Ports;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace NyandroidMite
 {
@@ -17,11 +18,52 @@ namespace NyandroidMite
         public event EventHandler<ButtonStatesEventArgs>? ButtonStatesReceived;
         public event EventHandler<AnalogValuesEventArgs>? AnalogValuesReceived;
 
-        public FirmwareManager(string portName, int baudRate = 115200)
+        public FirmwareManager(string? portName = null, int baudRate = 115200)
         {
-            _portName = portName;
+            _portName = portName ?? DetectMicrocontrollerPort() ?? throw new Exception("No microcontroller found");
             _baudRate = baudRate;
             _cancellationTokenSource = new CancellationTokenSource();
+        }
+
+        public static string? DetectMicrocontrollerPort()
+        {
+            // Get all available serial ports
+            var ports = SerialPort.GetPortNames();
+            
+            // On Linux, filter to only USB serial devices
+            if (Environment.OSVersion.Platform == PlatformID.Unix)
+            {
+                ports = ports.Where(p => p.StartsWith("/dev/ttyUSB") || p.StartsWith("/dev/ttyACM")).ToArray();
+            }
+
+            foreach (var port in ports)
+            {
+                try
+                {
+                    using var testPort = new SerialPort(port, 115200)
+                    {
+                        ReadTimeout = 500,
+                        WriteTimeout = 500
+                    };
+
+                    testPort.Open();
+                    testPort.WriteLine("HANDSHAKE");
+                    
+                    // Wait for response
+                    var response = testPort.ReadLine().Trim();
+                    if (response == "NYANDROID_MITE")
+                    {
+                        return port;
+                    }
+                }
+                catch
+                {
+                    // Ignore errors and try next port
+                    continue;
+                }
+            }
+
+            return null;
         }
 
         public bool IsConnected => _serialPort?.IsOpen ?? false;
