@@ -47,8 +47,8 @@ const unsigned long SEND_INTERVAL = 1000;  // Send interval in milliseconds (1 s
  * Initializes all hardware and communication
  */
 void setup() {
-  // Initialize serial communication at 9600 baud
-  Serial.begin(9600);
+  // Initialize serial communication at 115200 baud
+  Serial.begin(115200);
   
   // Setup button pins with internal pull-up resistors
   pinMode(BUTTON_S6, INPUT_PULLUP);

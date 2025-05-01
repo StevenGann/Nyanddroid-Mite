@@ -11,4 +11,8 @@
     <SelfContained>true</SelfContained>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.IO.Ports" Version="7.0.0" />
+  </ItemGroup>
+
 </Project>
