@@ -63,6 +63,7 @@ namespace NyandroidMite
 
             foreach (var port in ports)
             {
+                Console.WriteLine($"Checking port {port}");
                 try
                 {
                     using var testPort = new SerialPort(port, 115200)
@@ -78,11 +79,13 @@ namespace NyandroidMite
                     var response = testPort.ReadLine().Trim();
                     if (response == "NYANDROID_MITE")
                     {
+                        Console.WriteLine($"Found at port {port}");
                         return port;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Console.WriteLine($"Error:\n{ex.Message}");
                     // Ignore errors and try next port
                     continue;
                 }

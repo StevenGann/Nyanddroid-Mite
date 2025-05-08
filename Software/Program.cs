@@ -1,193 +1,197 @@
 using System;
 using System.Threading;
+using System.Numerics;
 
 namespace NyandroidMite
 {
     /// <summary>
-    /// Provides a command-line interface for interacting with the Nyandroid Mite microcontroller.
+    /// Provides a visualization interface for the LD06 LIDAR sensor data.
     /// </summary>
     class Program
     {
+        // Visualization settings
+        private const int CANVAS_WIDTH = 80;
+        private const int CANVAS_HEIGHT = 35;  // Reduced height to ensure room for legend
+        private const float SCALE = 0.005f; // Scale factor to convert mm to canvas units
+        private const int REFRESH_RATE = 16; // Milliseconds between updates
+
         /// <summary>
         /// The entry point of the application.
         /// </summary>
-        /// <param name="args">Command-line arguments passed to the application.</param>
         static void Main(string[] args)
         {
-            Console.WriteLine("Nyandroid Mite CLI");
-            Console.WriteLine("=================");
+            Console.WriteLine("Nyandroid Mite LIDAR Visualizer");
+            Console.WriteLine("==============================");
             
-            using var firmwareManager = new FirmwareManager();
+            // Get port name from command line or use default
+            string portName = args.Length > 0 ? args[0] : 
+                Environment.OSVersion.Platform == PlatformID.Unix ? "/dev/ttyUSB0" : "COM6";
+
+            Console.WriteLine($"Using port: {portName}");
+            Console.WriteLine("Press Ctrl+C to exit");
+            Console.WriteLine();
+
+            // Configure console
+            try
+            {
+                Console.BufferHeight = Math.Max(Console.BufferHeight, CANVAS_HEIGHT + 8); // Extra room for diagnostics
+                Console.WindowHeight = Math.Min(50, Console.BufferHeight);
+            }
+            catch
+            {
+                // Some console environments don't support buffer size modification
+            }
+
+            // Create and configure LIDAR
+            using var lidar = new LidarLD06(portName);
             
             try
             {
-                Console.WriteLine("Connecting to Nyandroid Mite...");
-                firmwareManager.Connect();
+                // Center the LIDAR in the visualization
+                lidar.ConfigureSensor(Vector2.Zero, 0);
+                
+                Console.WriteLine("Connecting to LIDAR...");
+                lidar.Connect();
                 Console.WriteLine("Connected successfully!");
 
-                // Subscribe to events
-                firmwareManager.ButtonStatesReceived += (sender, e) =>
-                {
-                    Console.WriteLine($"\nButton States: {string.Join(", ", e.ButtonStates)}");
-                };
+                // Setup visualization
+                Console.CursorVisible = false;
+                char[,] canvas = new char[CANVAS_HEIGHT, CANVAS_WIDTH];
 
-                firmwareManager.AnalogValuesReceived += (sender, e) =>
-                {
-                    Console.WriteLine($"\nAnalog Values: {string.Join(", ", e.AnalogValues)}");
-                };
-
-                // Main menu loop
+                // Main visualization loop
                 while (true)
                 {
-                    Console.WriteLine("\nMenu:");
-                    Console.WriteLine("1. Send motor commands");
-                    Console.WriteLine("2. Send servo commands");
-                    Console.WriteLine("3. Send combined motor and servo commands");
-                    Console.WriteLine("4. Exit");
-                    Console.Write("\nSelect an option: ");
-
-                    if (!int.TryParse(Console.ReadLine(), out int choice))
+                    try
                     {
-                        Console.WriteLine("Invalid input. Please enter a number.");
-                        continue;
+                        // Clear canvas
+                        ClearCanvas(canvas);
+
+                        // Get latest scan data
+                        Vector2[] points = lidar.QuerySensor();
+
+                        // Plot points on canvas
+                        foreach (Vector2 point in points)
+                        {
+                            // Scale and transform point to canvas coordinates
+                            int x = (int)(point.X * SCALE + CANVAS_WIDTH / 2);
+                            int y = (int)(point.Y * SCALE + CANVAS_HEIGHT / 2);
+
+                            // Check if point is within canvas bounds
+                            if (x >= 0 && x < CANVAS_WIDTH && y >= 0 && y < CANVAS_HEIGHT)
+                            {
+                                canvas[y, x] = '#';
+                            }
+                        }
+
+                        // Draw canvas
+                        DrawCanvas(canvas);
+
+                        // Draw legend and diagnostics
+                        try
+                        {
+                            if (Console.BufferHeight >= CANVAS_HEIGHT + 6)
+                            {
+                                Console.SetCursorPosition(0, CANVAS_HEIGHT);
+                                Console.WriteLine($"Points: {points.Length}    ");
+                                Console.WriteLine("# = Detected obstacle");
+                                Console.WriteLine("+ = LIDAR position");
+                                Console.WriteLine($"Scale: 1 unit = {1/SCALE:F1}mm");
+                                Console.WriteLine($"Press Ctrl+C to exit");
+                            }
+                        }
+                        catch
+                        {
+                            // If we can't write the legend, just skip it
+                        }
+
+                        Thread.Sleep(REFRESH_RATE);
                     }
-
-                    switch (choice)
+                    catch (Exception ex)
                     {
-                        case 1:
-                            SendMotorCommands(firmwareManager);
-                            break;
-                        case 2:
-                            SendServoCommands(firmwareManager);
-                            break;
-                        case 3:
-                            SendCombinedCommands(firmwareManager);
-                            break;
-                        case 4:
-                            Console.WriteLine("Exiting...");
-                            return;
-                        default:
-                            Console.WriteLine("Invalid option. Please try again.");
-                            break;
+                        // Log visualization errors but continue running
+                        Console.SetCursorPosition(0, 0);
+                        Console.WriteLine($"Visualization error: {ex.Message}");
+                        Thread.Sleep(1000);
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine($"\nError: {ex.Message}");
+                return;
+            }
+            finally
+            {
+                Console.CursorVisible = true;
             }
         }
 
         /// <summary>
-        /// Prompts the user for motor speeds and sends the command to the microcontroller.
+        /// Clears the canvas by filling it with spaces and a border
         /// </summary>
-        /// <param name="firmwareManager">The FirmwareManager instance to use for sending commands.</param>
-        static void SendMotorCommands(FirmwareManager firmwareManager)
+        private static void ClearCanvas(char[,] canvas)
         {
-            Console.Write("Enter motor 1 speed (-255 to 255): ");
-            if (!int.TryParse(Console.ReadLine(), out int motor1Speed))
+            // Fill with spaces
+            for (int y = 0; y < CANVAS_HEIGHT; y++)
             {
-                Console.WriteLine("Invalid input for motor 1 speed.");
-                return;
+                for (int x = 0; x < CANVAS_WIDTH; x++)
+                {
+                    canvas[y, x] = ' ';
+                }
             }
 
-            Console.Write("Enter motor 2 speed (-255 to 255): ");
-            if (!int.TryParse(Console.ReadLine(), out int motor2Speed))
+            // Draw border
+            for (int x = 0; x < CANVAS_WIDTH; x++)
             {
-                Console.WriteLine("Invalid input for motor 2 speed.");
-                return;
+                canvas[0, x] = '─';
+                canvas[CANVAS_HEIGHT - 1, x] = '─';
+            }
+            for (int y = 0; y < CANVAS_HEIGHT; y++)
+            {
+                canvas[y, 0] = '│';
+                canvas[y, CANVAS_WIDTH - 1] = '│';
             }
 
-            firmwareManager.SendCommand(motor1Speed, motor2Speed);
-            Console.WriteLine("Motor commands sent successfully!");
+            // Draw corners
+            canvas[0, 0] = '┌';
+            canvas[0, CANVAS_WIDTH - 1] = '┐';
+            canvas[CANVAS_HEIGHT - 1, 0] = '└';
+            canvas[CANVAS_HEIGHT - 1, CANVAS_WIDTH - 1] = '┘';
+
+            // Mark LIDAR position
+            canvas[CANVAS_HEIGHT / 2, CANVAS_WIDTH / 2] = '+';
         }
 
         /// <summary>
-        /// Prompts the user for servo configurations and sends the command to the microcontroller.
+        /// Draws the canvas to the console
         /// </summary>
-        /// <param name="firmwareManager">The FirmwareManager instance to use for sending commands.</param>
-        static void SendServoCommands(FirmwareManager firmwareManager)
+        private static void DrawCanvas(char[,] canvas)
         {
-            Console.Write("Enter number of servos to control: ");
-            if (!int.TryParse(Console.ReadLine(), out int servoCount) || servoCount <= 0)
+            try
             {
-                Console.WriteLine("Invalid number of servos.");
-                return;
-            }
-
-            var servos = new (int pin, int position)[servoCount];
-            for (int i = 0; i < servoCount; i++)
-            {
-                Console.Write($"Enter servo {i + 1} pin number: ");
-                if (!int.TryParse(Console.ReadLine(), out int pin))
+                Console.SetCursorPosition(0, 0);
+                
+                for (int y = 0; y < CANVAS_HEIGHT; y++)
                 {
-                    Console.WriteLine("Invalid pin number.");
-                    return;
+                    for (int x = 0; x < CANVAS_WIDTH; x++)
+                    {
+                        Console.Write(canvas[y, x]);
+                    }
+                    Console.WriteLine();
                 }
-
-                Console.Write($"Enter servo {i + 1} position (0-180): ");
-                if (!int.TryParse(Console.ReadLine(), out int position))
+            }
+            catch
+            {
+                // If we can't position cursor, try to write anyway
+                for (int y = 0; y < CANVAS_HEIGHT; y++)
                 {
-                    Console.WriteLine("Invalid position.");
-                    return;
+                    for (int x = 0; x < CANVAS_WIDTH; x++)
+                    {
+                        Console.Write(canvas[y, x]);
+                    }
+                    Console.WriteLine();
                 }
-
-                servos[i] = (pin, position);
             }
-
-            firmwareManager.SendCommand(0, 0, servos);
-            Console.WriteLine("Servo commands sent successfully!");
-        }
-
-        /// <summary>
-        /// Prompts the user for both motor speeds and servo configurations, then sends a combined command.
-        /// </summary>
-        /// <param name="firmwareManager">The FirmwareManager instance to use for sending commands.</param>
-        static void SendCombinedCommands(FirmwareManager firmwareManager)
-        {
-            Console.Write("Enter motor 1 speed (-255 to 255): ");
-            if (!int.TryParse(Console.ReadLine(), out int motor1Speed))
-            {
-                Console.WriteLine("Invalid input for motor 1 speed.");
-                return;
-            }
-
-            Console.Write("Enter motor 2 speed (-255 to 255): ");
-            if (!int.TryParse(Console.ReadLine(), out int motor2Speed))
-            {
-                Console.WriteLine("Invalid input for motor 2 speed.");
-                return;
-            }
-
-            Console.Write("Enter number of servos to control: ");
-            if (!int.TryParse(Console.ReadLine(), out int servoCount) || servoCount <= 0)
-            {
-                Console.WriteLine("Invalid number of servos.");
-                return;
-            }
-
-            var servos = new (int pin, int position)[servoCount];
-            for (int i = 0; i < servoCount; i++)
-            {
-                Console.Write($"Enter servo {i + 1} pin number: ");
-                if (!int.TryParse(Console.ReadLine(), out int pin))
-                {
-                    Console.WriteLine("Invalid pin number.");
-                    return;
-                }
-
-                Console.Write($"Enter servo {i + 1} position (0-180): ");
-                if (!int.TryParse(Console.ReadLine(), out int position))
-                {
-                    Console.WriteLine("Invalid position.");
-                    return;
-                }
-
-                servos[i] = (pin, position);
-            }
-
-            firmwareManager.SendCommand(motor1Speed, motor2Speed, servos);
-            Console.WriteLine("Combined commands sent successfully!");
         }
     }
 } 
