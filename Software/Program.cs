@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Numerics;
+using Common;
 
 namespace NyandroidMite
 {
@@ -13,34 +14,50 @@ namespace NyandroidMite
         private const int CANVAS_WIDTH = 80;
         private const int CANVAS_HEIGHT = 35;  // Reduced height to ensure room for legend
         private const float SCALE = 0.005f; // Scale factor to convert mm to canvas units
-        private const int REFRESH_RATE = 16; // Milliseconds between updates
+        private const int REFRESH_RATE = 25; // Milliseconds between updates
 
         /// <summary>
         /// The entry point of the application.
         /// </summary>
         static void Main(string[] args)
         {
-            Console.WriteLine("Nyandroid Mite LIDAR Visualizer");
-            Console.WriteLine("==============================");
-            
-            // Get port name from command line or use default
-            string portName = args.Length > 0 ? args[0] : 
-                Environment.OSVersion.Platform == PlatformID.Unix ? "/dev/ttyUSB0" : "COM6";
+            // Parse command line arguments
+            bool enableVisualization = false;
+            string portName = Environment.OSVersion.Platform == PlatformID.Unix ? "/dev/ttyUSB0" : "COM6";
 
+            for (int i = 0; i < args.Length; i++)
+            {
+                switch (args[i].ToLower())
+                {
+                    case "--visualize":
+                    case "-v":
+                        enableVisualization = true;
+                        break;
+                    case "--port":
+                    case "-p":
+                        if (i + 1 < args.Length)
+                            portName = args[++i];
+                        break;
+                }
+            }
+
+            // Configure logging based on visualization mode
+            if (enableVisualization)
+            {
+                Logging.ConsoleOutput = false;
+                Console.WriteLine("Nyandroid Mite LIDAR Visualizer");
+                Console.WriteLine("==============================");
+            }
+            else
+            {
+                Console.WriteLine("Nyandroid Mite LIDAR Service");
+                Console.WriteLine("===========================");
+            }
+            
+            Logging.LogLevel = Logging.Level.Debug;
             Console.WriteLine($"Using port: {portName}");
             Console.WriteLine("Press Ctrl+C to exit");
             Console.WriteLine();
-
-            // Configure console
-            try
-            {
-                Console.BufferHeight = Math.Max(Console.BufferHeight, CANVAS_HEIGHT + 8); // Extra room for diagnostics
-                Console.WindowHeight = Math.Min(50, Console.BufferHeight);
-            }
-            catch
-            {
-                // Some console environments don't support buffer size modification
-            }
 
             // Create and configure LIDAR
             using var lidar = new LidarLD06(portName);
@@ -54,13 +71,47 @@ namespace NyandroidMite
                 lidar.Connect();
                 Console.WriteLine("Connected successfully!");
 
-                // Setup visualization
-                Console.CursorVisible = false;
-                char[,] canvas = new char[CANVAS_HEIGHT, CANVAS_WIDTH];
+                if (enableVisualization)
+                {
+                    RunVisualization(lidar);
+                }
+                else
+                {
+                    RunDataCollection(lidar);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logging.Log($"Error: {ex.Message}", Logging.Level.Error);
+            }
+        }
 
+        /// <summary>
+        /// Runs the LIDAR in visualization mode with console output
+        /// </summary>
+        private static void RunVisualization(LidarLD06 lidar)
+        {
+            // Configure console
+            try
+            {
+                Console.BufferHeight = Math.Max(Console.BufferHeight, CANVAS_HEIGHT + 8);
+                Console.WindowHeight = Math.Min(50, Console.BufferHeight);
+            }
+            catch
+            {
+                // Some console environments don't support buffer size modification
+            }
+
+            // Setup visualization
+            Console.CursorVisible = false;
+            char[,] canvas = new char[CANVAS_HEIGHT, CANVAS_WIDTH];
+
+            try
+            {
                 // Main visualization loop
                 while (true)
                 {
+                    var perfToken = Performance.Start("Main visualization loop");
                     try
                     {
                         // Clear canvas
@@ -110,19 +161,38 @@ namespace NyandroidMite
                     {
                         // Log visualization errors but continue running
                         Console.SetCursorPosition(0, 0);
-                        Console.WriteLine($"Visualization error: {ex.Message}");
+                        Logging.Log($"Visualization error: {ex.Message}", Logging.Level.Error);
                         Thread.Sleep(1000);
                     }
+                    Performance.Stop(perfToken);
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"\nError: {ex.Message}");
-                return;
             }
             finally
             {
                 Console.CursorVisible = true;
+            }
+        }
+
+        /// <summary>
+        /// Runs the LIDAR in data collection mode without visualization
+        /// </summary>
+        private static void RunDataCollection(LidarLD06 lidar)
+        {
+            while (true)
+            {
+                var perfToken = Performance.Start("LIDAR data collection");
+                try
+                {
+                    // Get latest scan data
+                    Vector2[] points = lidar.QuerySensor();
+                    Logging.Log($"Collected {points.Length} points", Logging.Level.Performance);
+                }
+                catch (Exception ex)
+                {
+                    Logging.Log($"Data collection error: {ex.Message}", Logging.Level.Error);
+                }
+                Performance.Stop(perfToken);
+                Thread.Sleep(REFRESH_RATE);
             }
         }
 

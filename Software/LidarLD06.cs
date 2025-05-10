@@ -5,6 +5,7 @@ using System.IO.Ports;
 using System.Collections.Concurrent;
 using System.Text;
 using System.Linq;
+using Common;
 
 namespace NyandroidMite
 {
@@ -169,25 +170,40 @@ namespace NyandroidMite
                     {
                         byte current = (byte)_serialPort.ReadByte();
 
-                        if (bufferIndex < 47)
+                        // If we're at the start of a new buffer, look for the header sequence
+                        if (bufferIndex == 0)
                         {
-                            if (bufferIndex < 46)
-                            {
-                                crc = LDCRC[crc ^ current];
-                            }
+                            if (current != 0x54) // First header byte
+                                continue;
+                            
+                            // Found first header byte, check for second
+                            if (_serialPort.BytesToRead == 0)
+                                continue;
+                                
+                            byte second = (byte)_serialPort.ReadByte();
+                            if (second != 0x2C) // Second header byte
+                                continue;
 
-                            buffer[bufferIndex] = current;
-                            bufferIndex++;
-
-                            if (bufferIndex == 47)
-                            {
-                                ProcessLidarPacket(buffer, crc);
-                                bufferIndex = 0;
-                                crc = 0;
-                            }
+                            // Found valid header, add it to buffer
+                            buffer[0] = current;
+                            buffer[1] = second;
+                            bufferIndex = 2;
+                            crc = LDCRC[LDCRC[0 ^ current] ^ second];
+                            continue;
                         }
-                        else
+
+                        // Continue filling buffer after header is found
+                        if (bufferIndex < 46)
                         {
+                            crc = LDCRC[crc ^ current];
+                        }
+
+                        buffer[bufferIndex] = current;
+                        bufferIndex++;
+
+                        if (bufferIndex == 47)
+                        {
+                            ProcessLidarPacket(buffer, crc);
                             bufferIndex = 0;
                             crc = 0;
                         }
@@ -226,14 +242,44 @@ namespace NyandroidMite
         /// </remarks>
         private void ProcessLidarPacket(byte[] buffer, byte crc)
         {
-            if (buffer[0] != 0x54 || buffer[1] != 0x2C || buffer[46] != crc)
+            // Helper function to create hex dump of packet
+            static string PacketToHexDump(byte[] buffer)
             {
-                return; // Invalid packet
+                var sb = new StringBuilder();
+                sb.AppendLine("Packet contents:");
+                for (int i = 0; i < buffer.Length; i += 16)
+                {
+                    sb.Append($"{i:X4}: ");
+                    for (int j = 0; j < 16 && (i + j) < buffer.Length; j++)
+                    {
+                        sb.Append($"{buffer[i + j]:X2} ");
+                    }
+                    sb.AppendLine();
+                }
+                return sb.ToString();
+            }
+
+            // Check packet header
+            if (buffer[0] != 0x54 || buffer[1] != 0x2C)
+            {
+                Logging.Log($"Dropped LIDAR packet: Invalid header bytes. Expected: 0x54,0x2C, Got: 0x{buffer[0]:X2},0x{buffer[1]:X2}", Logging.Level.Warning);
+                Logging.Log(PacketToHexDump(buffer), Logging.Level.Debug);
+                return;
+            }
+
+            // Check CRC
+            if (buffer[46] != crc)
+            {
+                Logging.Log($"Dropped LIDAR packet: CRC validation failed. Expected: 0x{crc:X2}, Got: 0x{buffer[46]:X2}", Logging.Level.Warning);
+                Logging.Log(PacketToHexDump(buffer), Logging.Level.Debug);
+                return;
             }
 
             ushort motorSpeed = (ushort)(buffer[2] | (buffer[3] << 8));
             if (motorSpeed == 0)
             {
+                Logging.Log("Dropped LIDAR packet: Motor not spinning", Logging.Level.Warning);
+                Logging.Log(PacketToHexDump(buffer), Logging.Level.Debug);
                 return; // Motor not spinning
             }
 
@@ -268,6 +314,8 @@ namespace NyandroidMite
                     _points.Enqueue(new Vector2(x, y));
                 }
             }
+
+            Logging.Log("Packet decoded successfully", Logging.Level.Performance);
         }
 
         /// <summary>
