@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Numerics;
 using Common;
+using System.Text.Json;
+using System.Linq;
 
 namespace NyandroidMite
 {
@@ -15,6 +17,8 @@ namespace NyandroidMite
         private const int CANVAS_HEIGHT = 35;  // Reduced height to ensure room for legend
         private const float SCALE = 0.005f; // Scale factor to convert mm to canvas units
         private const int REFRESH_RATE = 25; // Milliseconds between updates
+
+        private static TcpConnector connector = new();
 
         /// <summary>
         /// The entry point of the application.
@@ -53,20 +57,21 @@ namespace NyandroidMite
                 Console.WriteLine("Nyandroid Mite LIDAR Service");
                 Console.WriteLine("===========================");
             }
-            
+
             Logging.LogLevel = Logging.Level.Debug;
+            connector.Connect(5556, 5555, "192.168.0.166");
             Console.WriteLine($"Using port: {portName}");
             Console.WriteLine("Press Ctrl+C to exit");
             Console.WriteLine();
 
             // Create and configure LIDAR
             using var lidar = new LidarLD06(portName);
-            
+
             try
             {
                 // Center the LIDAR in the visualization
                 lidar.ConfigureSensor(Vector2.Zero, 0);
-                
+
                 Console.WriteLine("Connecting to LIDAR...");
                 lidar.Connect();
                 Console.WriteLine("Connected successfully!");
@@ -146,7 +151,7 @@ namespace NyandroidMite
                                 Console.WriteLine($"Points: {points.Length}    ");
                                 Console.WriteLine("# = Detected obstacle");
                                 Console.WriteLine("+ = LIDAR position");
-                                Console.WriteLine($"Scale: 1 unit = {1/SCALE:F1}mm");
+                                Console.WriteLine($"Scale: 1 unit = {1 / SCALE:F1}mm");
                                 Console.WriteLine($"Press Ctrl+C to exit");
                             }
                         }
@@ -165,6 +170,7 @@ namespace NyandroidMite
                         Thread.Sleep(1000);
                     }
                     Performance.Stop(perfToken);
+                    SendLog();
                 }
             }
             finally
@@ -186,6 +192,7 @@ namespace NyandroidMite
                     // Get latest scan data
                     Vector2[] points = lidar.QuerySensor();
                     Logging.Log($"Collected {points.Length} points", Logging.Level.Performance);
+                    SendPoints(points);
                 }
                 catch (Exception ex)
                 {
@@ -193,6 +200,7 @@ namespace NyandroidMite
                 }
                 Performance.Stop(perfToken);
                 Thread.Sleep(REFRESH_RATE);
+                SendLog();
             }
         }
 
@@ -240,7 +248,7 @@ namespace NyandroidMite
             try
             {
                 Console.SetCursorPosition(0, 0);
-                
+
                 for (int y = 0; y < CANVAS_HEIGHT; y++)
                 {
                     for (int x = 0; x < CANVAS_WIDTH; x++)
@@ -263,5 +271,43 @@ namespace NyandroidMite
                 }
             }
         }
+
+        private static void SendLog()
+        {
+            var logs = Logging.GetLog();
+            if(logs.Count == 0) return; 
+            var logEntries = logs.Select(l => new LogEntry { Level = l.level, Message = l.message }).ToList();
+            string payload = "[LOGS]" + JsonSerializer.Serialize(logEntries, new JsonSerializerOptions { WriteIndented = false });
+
+            bool sent = false;
+            while (!sent)
+            {
+                try
+                {
+                    Console.WriteLine("Sending message: " + payload);
+                    connector.Send(payload);
+                    sent = true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Send failed, retrying: " + ex.Message);
+                    Thread.Sleep(1000);
+                }
+            }
+        }
+
+        private static void SendPoints(Vector2[] points)
+        {
+            var serializablePoints = points.Select(p => ((short)p.X, (short)p.Y)).ToArray();
+            string message = "[POINTS]";
+            byte[] data = new byte[serializablePoints.Length * 4];
+            for (int i = 0; i < serializablePoints.Length; i++)
+            {
+                Buffer.BlockCopy(BitConverter.GetBytes(serializablePoints[i].Item1), 0, data, i * 4, 2);
+                Buffer.BlockCopy(BitConverter.GetBytes(serializablePoints[i].Item2), 0, data, i * 4 + 2, 2);
+            }
+            connector.Send(message, data);
+        }
+        
     }
-} 
+}

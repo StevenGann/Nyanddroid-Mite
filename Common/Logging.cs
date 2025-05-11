@@ -27,6 +27,7 @@ public static class Logging
     /// </summary>
     private static ConcurrentQueue<(Level level, string message)> _logQueue = new();
 
+
     /// <summary>
     /// Defines the severity levels for log messages.
     /// </summary>
