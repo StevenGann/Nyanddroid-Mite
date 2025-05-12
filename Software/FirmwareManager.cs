@@ -3,6 +3,7 @@ using System.IO.Ports;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
+using Common;
 
 namespace NyandroidMite
 {
@@ -63,7 +64,7 @@ namespace NyandroidMite
 
             foreach (var port in ports)
             {
-                Console.WriteLine($"Checking port {port}");
+                Logging.Log($"Checking port {port}", Logging.Level.Debug);
                 try
                 {
                     using var testPort = new SerialPort(port, 115200)
@@ -79,13 +80,13 @@ namespace NyandroidMite
                     var response = testPort.ReadLine().Trim();
                     if (response == "NYANDROID_MITE")
                     {
-                        Console.WriteLine($"Found at port {port}");
+                        Logging.Log($"Found at port {port}", Logging.Level.Debug);
                         return port;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error:\n{ex.Message}");
+                    Logging.Log($"Error:\n{ex.Message}", Logging.Level.Debug);
                     // Ignore errors and try next port
                     continue;
                 }
@@ -160,7 +161,7 @@ namespace NyandroidMite
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Error reading from serial port: {ex.Message}");
+                        Logging.Log($"Error reading from serial port: {ex.Message}", Logging.Level.Debug);
                     }
 
                     await Task.Delay(10, _cancellationTokenSource.Token);

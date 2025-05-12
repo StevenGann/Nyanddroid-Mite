@@ -60,6 +60,8 @@ namespace NyandroidMite
         private Vector2 _offset;
         /// <summary>The rotation offset of the LIDAR in radians.</summary>
         private float _rotationRadians;
+        /// <summary>Tracks the last angleRad processed</summary>
+        private float _lastAngleRad = 0f;
 
         /// <summary>
         /// CRC lookup table for the LD06 protocol.
@@ -306,8 +308,15 @@ namespace NyandroidMite
                     float x = distance * (float)Math.Cos(angleRad) + _offset.X;
                     float y = distance * (float)Math.Sin(angleRad) + _offset.Y;
 
+                    // Purge the queue if a new rotation is detected (angleRad wrapped around)
+                    if (angleRad < _lastAngleRad)
+                    {
+                       // _points.Clear();
+                    }
+                    _lastAngleRad = angleRad;
+
                     // Add point to the queue, limiting size to prevent memory issues
-                    while (_points.Count >= 1000)
+                    while (_points.Count >= 500)
                     {
                         _points.TryDequeue(out _);
                     }

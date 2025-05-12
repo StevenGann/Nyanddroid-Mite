@@ -15,6 +15,7 @@ namespace Dashboard
             using var connector = new TcpConnector();
             connector.Connect(ListeningPort: 5555, TargetPort: 5556, TargetIp: "192.168.0.161");
 
+            LidarVisualizer.Connector = connector;
             LidarVisualizer.Start();
 
             Console.WriteLine("Dashboard server ready, waiting for robot...");

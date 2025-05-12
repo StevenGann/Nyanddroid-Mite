@@ -66,28 +66,64 @@ namespace NyandroidMite
 
             // Create and configure LIDAR
             using var lidar = new LidarLD06(portName);
-
+            using var firmware = new FirmwareManager("/dev/ttyACM0");
             try
             {
-                // Center the LIDAR in the visualization
-                lidar.ConfigureSensor(Vector2.Zero, 0);
-
-                Console.WriteLine("Connecting to LIDAR...");
-                lidar.Connect();
-                Console.WriteLine("Connected successfully!");
-
-                if (enableVisualization)
-                {
-                    RunVisualization(lidar);
-                }
-                else
-                {
-                    RunDataCollection(lidar);
-                }
+                firmware.Connect();
             }
             catch (Exception ex)
             {
-                Logging.Log($"Error: {ex.Message}", Logging.Level.Error);
+                Logging.Log($"Firmware connection error: {ex.Message}", Logging.Level.Error);
+            }
+
+            // Start background thread to receive and process [COMMAND] messages
+            var commandThread = new Thread(() =>
+            {
+                while (true)
+                {
+                    try
+                    {
+                        var (message, data) = connector.Receive();
+                        if (message.StartsWith("[COMMAND]"))
+                        {
+                            Console.WriteLine(message);
+                            string json = message.Substring("[COMMAND]".Length);
+                            try
+                            {
+                                var cmd = Common.FirmwareCommand.FromJson(json);
+                                var servos = cmd.Servos?.Select(s => (s.Pin, s.Position)).ToArray() ?? Array.Empty<(int, int)>();
+                                firmware.SendCommand(cmd.Motor1Speed, cmd.Motor2Speed, servos);
+                                Logging.Log($"Processed [COMMAND]: M1={cmd.Motor1Speed}, M2={cmd.Motor2Speed}, Servos={cmd.Servos?.Count ?? 0}", Logging.Level.Info);
+                            }
+                            catch (Exception ex)
+                            {
+                                Logging.Log($"Failed to process [COMMAND]: {ex.Message}", Logging.Level.Error);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logging.Log($"Error in command receive loop: {ex.Message}", Logging.Level.Error);
+                        Thread.Sleep(1000);
+                    }
+                }
+            }) { IsBackground = true };
+            commandThread.Start();
+
+            // Center the LIDAR in the visualization
+            lidar.ConfigureSensor(Vector2.Zero, 0);
+
+            Console.WriteLine("Connecting to LIDAR...");
+            lidar.Connect();
+            Console.WriteLine("Connected successfully!");
+
+            if (enableVisualization)
+            {
+                RunVisualization(lidar);
+            }
+            else
+            {
+                RunDataCollection(lidar);
             }
         }
 
@@ -284,7 +320,7 @@ namespace NyandroidMite
             {
                 try
                 {
-                    Console.WriteLine("Sending message: " + payload);
+                    //Console.WriteLine("Sending message: " + payload);
                     connector.Send(payload);
                     sent = true;
                 }
